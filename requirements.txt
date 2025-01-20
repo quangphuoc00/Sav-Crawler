@@ -1,4 +1,8 @@
 aiohttp>=3.9.0
 beautifulsoup4==4.12.2
-fastapi==0.104.1
+fastapi
 uvicorn
+sqlalchemy
+pydantic
+psycopg2-binary
+python-dotenv
