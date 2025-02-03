@@ -49,7 +49,7 @@ CRAWLER_CONFIGS: Dict[str, dict] = {
         "site_name": "cocowest",
         "sku_range": {
             "start": 1835390,
-            "end": 1835400,
+            "end": 1835392,
         },
         "warehouse_ids": [3, 4, 5]
     },

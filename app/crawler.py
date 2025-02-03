@@ -54,7 +54,7 @@ class Crawler:
                 price_history.append(price_entry)
 
             api_item = {
-                "sku": sku,
+                "sku": int(sku),  # Convert string to integer
                 "name": item["name"],
                 "image_url": item.get("image_url", ""),  # Default to empty string if missing
                 "warehouse_ids": warehouse_ids,
@@ -63,10 +63,6 @@ class Crawler:
             items_for_api.append(api_item)
 
         try:
-            print(f"Attempting to update products using API URL: {self.api_url}")
-            print("Request JSON:")
-            print(json.dumps(items_for_api, indent=2, ensure_ascii=False))
-            
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.api_url,
@@ -218,7 +214,6 @@ class Crawler:
             # Find the entry header
             header = soup.find('header', class_='entry-header')
             if not header:
-                print(f"Product not found for SKU {sku}")
                 return None
 
             # Get product name from h2 tag and verify it contains SKU
@@ -274,7 +269,12 @@ class Crawler:
         try:
             with open(filename, "r") as f:
                 progress = json.load(f)
-                return progress["last_sku"], progress.get("failed", [])
+                # Support both old and new format
+                if "failed" in progress:
+                    # Migrate old format to new format
+                    failed_skus = progress["failed"]
+                    return progress["last_sku"], failed_skus
+                return progress["last_sku"], progress.get("upload_failed", []) + progress.get("parse_failed", [])
         except FileNotFoundError:
             return 0, []
 
@@ -282,8 +282,20 @@ class Crawler:
         """Save progress to file"""
         filename = get_progress_filepath(self.site_name)
         os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        # Separate failed SKUs into parse_failed and upload_failed
+        parse_failed = []
+        upload_failed = []
+        
+        for sku in failed_skus:
+            if str(sku) in self.results:  # If we have results, it was parsed but upload failed
+                upload_failed.append(sku)
+            else:  # If no results, parsing failed
+                parse_failed.append(sku)
+        
         with open(filename, "w") as f:
             json.dump({
                 "last_sku": last_sku,
-                "failed": failed_skus
+                "parse_failed": parse_failed,
+                "upload_failed": upload_failed
             }, f) 

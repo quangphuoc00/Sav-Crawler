@@ -8,6 +8,6 @@ services:
     environment:
       - PYTHONUNBUFFERED=1  # Enable real-time logging
       - API_URL=http://host.docker.internal:8080/api/products/update
-    restart: unless-stopped
+    # restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway" 
