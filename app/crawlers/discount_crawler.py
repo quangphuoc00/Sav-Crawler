@@ -10,7 +10,7 @@ from app.utils import get_random_headers, get_random_proxy, load_proxies
 from bs4 import BeautifulSoup
 import re
 
-class Crawler:
+class DiscountCrawler:
     def __init__(self, base_url, batch_size, min_delay, max_delay, save_interval, site_name):
         self.base_url = base_url
         self.batch_size = batch_size

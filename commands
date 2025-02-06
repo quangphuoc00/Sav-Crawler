@@ -1,0 +1,2 @@
+mkdir -p app/crawlers
+mv app/crawler.py app/crawlers/discount_crawler.py 
