@@ -1,7 +1,6 @@
 import asyncio
 from app.crawlers.discount_crawler import DiscountCrawler
 from app.config import CRAWLER_CONFIGS, CRAWLER_COMMON
-from app.crawlers.warehouse_crawler import WarehouseCrawler
 
 
 async def run_crawler(site: str):
@@ -27,28 +26,9 @@ async def run_crawler(site: str):
         end=config["sku_range"]["end"]
     )
 
-async def fetch_warehouses():
-    crawler = WarehouseCrawler()
-    warehouses = await crawler.fetch_warehouses()
-    if warehouses:
-        print(f"Found {len(warehouses)} warehouses")
-        # Do something with the warehouse data
-        return warehouses
-    return None
-
 async def main():
-    # Fetch warehouse data first
-    warehouses = await fetch_warehouses()
-    if not warehouses:
-        print("Failed to fetch warehouse data")
-        return
-
-    # Run multiple crawlers
-    # for site in CRAWLER_CONFIGS:
-    #     await run_crawler(site)
-
     # Run crawler for cocowest
-    # await run_crawler("cocowest")
+    await run_crawler("cocowest")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -22,8 +22,11 @@ class DiscountCrawler:
         self.proxies = load_proxies()
         self.session_start_time = time.time()
         self.requests_count = 0
-        self.api_url = os.getenv('API_URL', 'http://host.docker.internal:8080/api/products/update')
+        self.api_url = os.getenv('API_URL', 'http://host.docker.internal:8080') + '/api/products/update'
         self.items_to_update = []
+        # Add ANSI color codes
+        self.RED = '\033[91m'
+        self.RESET = '\033[0m'
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -36,33 +39,45 @@ class DiscountCrawler:
         if not self.items_to_update:
             return True
 
+        print("\n------- Upload ---------")
+        print(f"[UPLOAD] Preparing to upload {len(self.items_to_update)} items to API...")
+
         # Prepare items for API
         items_for_api = []
         for item in self.items_to_update:
             # Extract SKU from URL and ensure it's a string
             sku = item["url"].split("/")[-1]
             
+            # Log what we're parsing
+            print(f"\n[PARSING] SKU: {sku}")
+            print(f"[PARSING] Name: {item['name']}")
+            print(f"[PARSING] Image URL: {item.get('image_url', 'No image')}")
+            print(f"[PARSING] Price History Entries: {len(item['price_history'])}")
+            
             # Ensure price history format is correct
             price_history = []
             for price in item["price_history"]:
                 price_entry = {
                     "date_posted": price["date_posted"],
-                    "savings": price["savings"].replace("OFF", "").strip(),  # Remove "OFF" and whitespace
+                    "savings": price["savings"].replace("OFF", "").strip(),
                     "expiry": price["expiry"],
-                    "discounted_price": price["discounted_price"]
+                    "final_price": price["final_price"]
                 }
+                print(f"[PARSING] Price Entry: {price_entry}")
                 price_history.append(price_entry)
 
             api_item = {
-                "sku": int(sku),  # Convert string to integer
+                "sku": int(sku),
                 "name": item["name"],
-                "image_url": item.get("image_url", ""),  # Default to empty string if missing
+                "image_url": item.get("image_url", ""),
                 "warehouse_ids": warehouse_ids,
                 "price_history": price_history
             }
             items_for_api.append(api_item)
 
         try:
+            print(f"\n[UPLOAD] Sending request to API ({self.api_url})...")
+            print(f"[UPLOAD] Request Payload: {json.dumps(items_for_api, indent=2)}")
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.api_url,
@@ -70,19 +85,23 @@ class DiscountCrawler:
                     headers={"Content-Type": "application/json"}
                 ) as response:
                     response_text = await response.text()
-                    print(f"Response Status: {response.status}")
-                    print(f"Response Body: {response_text}")
+                    print(f"[UPLOAD] Response Status: {response.status}")
+                    print(f"[UPLOAD] Response Body: {response_text}")
                     
                     if response.status == 200:
                         result = await response.json()
                         if result.get("success"):
-                            print(f"Successfully updated {len(items_for_api)} items")
+                            print(f"[UPLOAD] ✅ Successfully uploaded {len(items_for_api)} items")
                             self.items_to_update = []
+                            print("------------------------")
                             return True
+                    print(f"{self.RED}[UPLOAD] ❌ Failed to upload {len(items_for_api)} items{self.RESET}")
+                    print("------------------------")
                     return False
         except Exception as e:
-            print(f"Error updating products: {str(e)}")
-            print(f"API URL being used: {self.api_url}")
+            print(f"{self.RED}[UPLOAD] ❌ Error uploading products: {str(e)}{self.RESET}")
+            print(f"{self.RED}[UPLOAD] API URL being used: {self.api_url}{self.RESET}")
+            print("------------------------")
             return False
 
     async def crawl_range(self, warehouse_ids: List[int], start: int = 1, end: int = 1000) -> None:
@@ -132,6 +151,7 @@ class DiscountCrawler:
                         await asyncio.gather(*tasks)
                         # Add successfully parsed items to update buffer
                         self.items_to_update.extend([item for item in self.results.values() if item])
+                        print(f"Current items in upload buffer: {len(self.items_to_update)}/{self.save_interval}")
                     except Exception as e:
                         print(f"Batch failed: {str(e)}")
                         failed_skus.extend(range(start - len(tasks), start))
@@ -178,20 +198,20 @@ class DiscountCrawler:
                             self.results[str(sku)] = item_info
                         return
                     elif response.status == 429:
-                        print(f"Rate limited on SKU {sku}, retrying with new proxy...")
+                        print(f"{self.RED}Rate limited on SKU {sku}, retrying with new proxy...{self.RESET}")
                         proxy_config = get_random_proxy(self.proxies)
                     elif response.status in [403, 406, 408, 444]:
-                        print(f"Possible bot detection (status {response.status}), rotating session...")
+                        print(f"{self.RED}Possible bot detection (status {response.status}), rotating session...{self.RESET}")
                         return
                     else:
-                        print(f"Failed to fetch SKU {sku}: {response.status}")
+                        print(f"{self.RED}Failed to fetch SKU {sku}: {response.status}{self.RESET}")
                         return
                         
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                print(f"Connection error for SKU {sku}: {str(e)}")
+                print(f"{self.RED}Connection error for SKU {sku}: {str(e)}{self.RESET}")
                 proxy_config = get_random_proxy(self.proxies)
             except Exception as e:
-                print(f"Error fetching SKU {sku}: {str(e)}")
+                print(f"{self.RED}Error fetching SKU {sku}: {str(e)}{self.RESET}")
                 if "proxy" in str(e).lower():
                     proxy_config = get_random_proxy(self.proxies)
                 else:
@@ -222,7 +242,7 @@ class DiscountCrawler:
                 # Remove SKU and any leading/trailing whitespace from name
                 item_info["name"] = title.text.replace(str(sku), '').strip()
             else:
-                print(f"Product name not found for SKU {sku}")
+                print(f"{self.RED}Product name not found for SKU {sku}{self.RESET}")
                 return None
 
             # Get product image from img tag in header
@@ -234,7 +254,6 @@ class DiscountCrawler:
             price_history = []
             content_div = soup.find('div', class_='coco-entry-summary')
             if content_div:
-                # Find all flex rows except the header row
                 price_rows = content_div.find_all('div', style=lambda x: x and 'flex-flow: row wrap' in x)
                 for row in price_rows[1:]:  # Skip the header row
                     divs = row.find_all('div', recursive=False)
@@ -246,11 +265,19 @@ class DiscountCrawler:
                         else:
                             date_posted = divs[0].text.strip()
 
+                        # Convert price string to float
+                        price_str = divs[3].text.strip().replace('$', '').replace(',', '')
+                        try:
+                            final_price = float(price_str)
+                        except ValueError:
+                            print(f"{self.RED}Invalid price format for SKU {sku}: {price_str}{self.RESET}")
+                            final_price = 0.0
+
                         price_entry = {
                             "date_posted": date_posted,
                             "savings": divs[1].text.strip(),
                             "expiry": divs[2].text.strip(),
-                            "discounted_price": divs[3].text.strip()
+                            "final_price": final_price
                         }
                         price_history.append(price_entry)
 
@@ -259,7 +286,7 @@ class DiscountCrawler:
             return item_info
 
         except Exception as e:
-            print(f"Error parsing SKU {sku}: {str(e)}")
+            print(f"{self.RED}Error parsing SKU {sku}: {str(e)}{self.RESET}")
             return None
 
     def load_progress(self) -> tuple[int, list[int]]:

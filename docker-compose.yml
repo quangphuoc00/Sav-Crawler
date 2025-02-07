@@ -7,7 +7,7 @@ services:
       - ./proxies.json:/app/proxies.json  # Mount proxies.json
     environment:
       - PYTHONUNBUFFERED=1  # Enable real-time logging
-      - API_URL=http://host.docker.internal:8080/api/products/update
+      - API_URL=http://66.94.112.14:8080
       # - API_URL=http://host.docker.internal:8080/api/products/update
     # restart: unless-stopped
     extra_hosts:
