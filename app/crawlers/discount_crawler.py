@@ -27,6 +27,11 @@ class DiscountCrawler:
         # Add ANSI color codes
         self.RED = '\033[91m'
         self.RESET = '\033[0m'
+        
+        # Initialize log file
+        log_file = "/app/found_skus.txt"  # Match the Docker mount point exactly
+        self.sku_log_file = open(log_file, "a")
+        self.found_skus_file = "/app/found_skus.txt"
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -39,21 +44,14 @@ class DiscountCrawler:
         if not self.items_to_update:
             return True
 
-        print("\n------- Upload ---------")
-        print(f"[UPLOAD] Preparing to upload {len(self.items_to_update)} items to API...")
+        print(f"\n[UPLOAD] Preparing to upload {len(self.items_to_update)} items to API...")
 
         # Prepare items for API
         items_for_api = []
         for item in self.items_to_update:
             # Extract SKU from URL and ensure it's a string
             sku = item["url"].split("/")[-1]
-            
-            # Log what we're parsing
-            print(f"\n[PARSING] SKU: {sku}")
-            print(f"[PARSING] Name: {item['name']}")
-            print(f"[PARSING] Image URL: {item.get('image_url', 'No image')}")
-            print(f"[PARSING] Price History Entries: {len(item['price_history'])}")
-            
+
             # Ensure price history format is correct
             price_history = []
             for price in item["price_history"]:
@@ -63,7 +61,6 @@ class DiscountCrawler:
                     "expiry": price["expiry"],
                     "final_price": price["final_price"]
                 }
-                print(f"[PARSING] Price Entry: {price_entry}")
                 price_history.append(price_entry)
 
             api_item = {
@@ -76,8 +73,6 @@ class DiscountCrawler:
             items_for_api.append(api_item)
 
         try:
-            print(f"\n[UPLOAD] Sending request to API ({self.api_url})...")
-            print(f"[UPLOAD] Request Payload: {json.dumps(items_for_api, indent=2)}")
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     self.api_url,
@@ -85,38 +80,28 @@ class DiscountCrawler:
                     headers={"Content-Type": "application/json"}
                 ) as response:
                     response_text = await response.text()
-                    print(f"[UPLOAD] Response Status: {response.status}")
-                    print(f"[UPLOAD] Response Body: {response_text}")
                     
                     if response.status == 200:
                         result = await response.json()
                         if result.get("success"):
                             print(f"[UPLOAD] ✅ Successfully uploaded {len(items_for_api)} items")
                             self.items_to_update = []
-                            print("------------------------")
                             return True
+                    # Only print response details if upload failed
                     print(f"{self.RED}[UPLOAD] ❌ Failed to upload {len(items_for_api)} items{self.RESET}")
-                    print("------------------------")
+                    print(f"{self.RED}[UPLOAD] Response Status: {response.status}{self.RESET} | message: {response_text}{self.RESET}")
                     return False
         except Exception as e:
             print(f"{self.RED}[UPLOAD] ❌ Error uploading products: {str(e)}{self.RESET}")
             print(f"{self.RED}[UPLOAD] API URL being used: {self.api_url}{self.RESET}")
-            print("------------------------")
             return False
 
-    async def crawl_range(self, warehouse_ids: List[int], start: int = 1, end: int = 1000) -> None:
+    async def scan_sku_range(self, start: int = 1, end: int = 1000) -> None:
+        """First phase: Scan SKU range to find valid products and save to file"""
         start_time = time.time()
         processed = 0
         total = end - start + 1
         failed_skus = []
-
-        resume_from, existing_failed = self.load_progress()
-        failed_skus.extend(existing_failed)
-        
-        if resume_from > start:
-            print(f"Resuming from SKU {resume_from + 1}")  # Log next SKU instead
-            start = resume_from + 1  # Start from next SKU
-            total = end - start + 1  # Recalculate total
 
         while start <= end:
             conn = aiohttp.TCPConnector(ssl=False, force_close=True)
@@ -136,46 +121,138 @@ class DiscountCrawler:
                     if self._should_rotate_session():
                         break
                         
-                    tasks.append(self.fetch_page(session, start))
+                    tasks.append(self.check_sku_exists(session, start))
                     start += 1
                     processed += 1
                     
-                    if random.random() < 0.1:  # 10% chance to show progress
+                    if random.random() < 0.1:
                         elapsed = time.time() - start_time
                         progress = (processed / total) * 100
                         eta = (elapsed / processed) * (total - processed)
-                        print(f"Progress: {progress:.2f}% | SKU: {start} | ETA: {eta/60:.2f} minutes")
+                        print(f"Scan Progress: {progress:.2f}% | SKU: {start} | ETA: {eta/60:.2f} minutes")
 
                 if tasks:
                     try:
                         await asyncio.gather(*tasks)
-                        # Add successfully parsed items to update buffer
-                        self.items_to_update.extend([item for item in self.results.values() if item])
-                        print(f"Current items in upload buffer: {len(self.items_to_update)}/{self.save_interval}")
                     except Exception as e:
                         print(f"Batch failed: {str(e)}")
                         failed_skus.extend(range(start - len(tasks), start))
                     
-                    # Update products if we've reached save_interval
+                    await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
+
+        print(f"\nScan completed! Processed {processed} SKUs in {(time.time() - start_time)/60:.2f} minutes")
+        print(f"Failed SKUs during scan: {len(failed_skus)}")
+
+    async def check_sku_exists(self, session: aiohttp.ClientSession, sku: int):
+        """Check if a SKU exists and has valid title"""
+        url = f"{self.base_url}/item/{sku}"
+        headers = get_random_headers()
+        proxy_config = get_random_proxy(self.proxies)
+        
+        max_retries = random.randint(2, 4)
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                self.requests_count += 1
+                
+                async with session.get(url, headers=headers, **proxy_config, timeout=30) as response:
+                    if response.status == 200:
+                        html_content = await response.text()
+                        soup = BeautifulSoup(html_content, 'html.parser')
+                        header = soup.find('header', class_='entry-header')
+                        
+                        if header:
+                            title = header.find('h2')
+                            if title and str(sku) in title.text:
+                                with open(self.found_skus_file, "a") as f:
+                                    f.write(f"{sku}\n")
+                                print(f"✅ Found valid SKU {sku}")
+                        return
+                    elif response.status == 429:
+                        print(f"{self.RED}Rate limited on SKU {sku}, retrying with new proxy...{self.RESET}")
+                        proxy_config = get_random_proxy(self.proxies)
+                    elif response.status in [403, 406, 408, 444]:
+                        print(f"{self.RED}Possible bot detection (status {response.status}), rotating session...{self.RESET}")
+                        return
+                    
+            except Exception as e:
+                print(f"{self.RED}Error checking SKU {sku}: {str(e)}{self.RESET}")
+                if "proxy" in str(e).lower():
+                    proxy_config = get_random_proxy(self.proxies)
+                else:
+                    return
+            
+            retry_count += 1
+            if retry_count < max_retries:
+                await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
+
+    async def scrape_found_skus(self, warehouse_ids: List[int]) -> None:
+        """Second phase: Parse and upload data for found SKUs"""
+        try:
+            with open(self.found_skus_file, "r") as f:
+                skus = [int(line.strip()) for line in f if line.strip()]
+        except FileNotFoundError:
+            print(f"{self.RED}No found SKUs file exists at {self.found_skus_file}{self.RESET}")
+            return
+
+        start_time = time.time()
+        processed = 0
+        total = len(skus)
+        failed_skus = []
+        current_index = 0
+
+        while current_index < total:
+            conn = aiohttp.TCPConnector(ssl=False, force_close=True)
+            timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
+            
+            async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
+                self.session_start_time = time.time()
+                self.requests_count = 0
+                
+                tasks = []
+                batch_size = random.randint(
+                    max(1, self.batch_size - 2),
+                    self.batch_size + 2
+                )
+
+                while len(tasks) < batch_size and current_index < total:
+                    if self._should_rotate_session():
+                        break
+                        
+                    sku = skus[current_index]
+                    tasks.append(self.fetch_page(session, sku))
+                    current_index += 1
+                    processed += 1
+                    
+                    if random.random() < 0.1:
+                        elapsed = time.time() - start_time
+                        progress = (processed / total) * 100
+                        eta = (elapsed / processed) * (total - processed)
+                        print(f"Scrape Progress: {progress:.2f}% | SKU: {sku} | ETA: {eta/60:.2f} minutes")
+
+                if tasks:
+                    try:
+                        await asyncio.gather(*tasks)
+                        self.items_to_update.extend([item for item in self.results.values() if item])
+                    except Exception as e:
+                        print(f"Batch failed: {str(e)}")
+                        failed_skus.extend(skus[current_index - len(tasks):current_index])
+                    
                     if len(self.items_to_update) >= self.save_interval:
                         if not await self._update_products(warehouse_ids):
-                            # If update fails, add SKUs to failed list
                             failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
                     
                     self.results = {}
                     await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
-                
-                if random.random() < 0.1:  # 10% chance to save progress
-                    self.save_progress(start, failed_skus)
 
         # Update any remaining items
         if self.items_to_update:
             if not await self._update_products(warehouse_ids):
                 failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
 
-        self.save_progress(end, failed_skus)
-        print(f"Crawl completed! Processed {processed} SKUs in {(time.time() - start_time)/60:.2f} minutes")
-        print(f"Failed SKUs: {len(failed_skus)}")
+        print(f"\nScrape completed! Processed {processed} SKUs in {(time.time() - start_time)/60:.2f} minutes")
+        print(f"Failed SKUs during scrape: {len(failed_skus)}")
 
     async def fetch_page(self, session: aiohttp.ClientSession, sku: int):
         """Fetch a single product page and parse item information"""
@@ -271,7 +348,7 @@ class DiscountCrawler:
                             final_price = float(price_str)
                         except ValueError:
                             print(f"{self.RED}Invalid price format for SKU {sku}: {price_str}{self.RESET}")
-                            final_price = 0.0
+                            final_price = -1.0
 
                         price_entry = {
                             "date_posted": date_posted,
