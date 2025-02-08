@@ -49,7 +49,7 @@ async def run_crawler_scrape(site: str):
 async def main():
     # Run scanner for cocowest
     print("Starting SKU scanning phase...")
-    await run_crawler_scan("cocowest", start=1, end=1000)
+    await run_crawler_scan("cocowest", start=10001, end=20000)
     
     # Run scraper for found SKUs
     # print("\nStarting SKU scraping phase...")
