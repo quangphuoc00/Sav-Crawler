@@ -9,6 +9,7 @@ from app.config import get_progress_filepath, DEFAULT_HEADERS, USER_AGENTS
 from app.utils import get_random_headers, get_random_proxy, load_proxies
 from bs4 import BeautifulSoup
 import re
+import threading
 
 class DiscountCrawler:
     def __init__(self, base_url, batch_size, min_delay, max_delay, save_interval, site_name):
@@ -28,10 +29,13 @@ class DiscountCrawler:
         self.RED = '\033[91m'
         self.RESET = '\033[0m'
         
-        # Initialize log file
-        log_file = "/app/found_skus.txt"  # Match the Docker mount point exactly
+        # Initialize log file with unique name based on site_name
+        log_file = f"/app/found_skus.txt"  # Match the Docker mount point exactly
         self.sku_log_file = open(log_file, "a")
-        self.found_skus_file = "/app/found_skus.txt"
+        self.found_skus_file = log_file
+        
+        # Add thread-safe print lock
+        self.print_lock = threading.Lock()
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -103,7 +107,12 @@ class DiscountCrawler:
         total = end - start + 1
         failed_skus = []
 
-        while start <= end:
+        # Create shuffled list of SKUs
+        skus_to_scan = list(range(start, end + 1))
+        random.shuffle(skus_to_scan)
+        current_index = 0
+
+        while current_index < total:
             conn = aiohttp.TCPConnector(ssl=False, force_close=True)
             timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
             
@@ -117,26 +126,27 @@ class DiscountCrawler:
                     self.batch_size + 2
                 )
 
-                while len(tasks) < batch_size and start <= end:
+                while len(tasks) < batch_size and current_index < total:
                     if self._should_rotate_session():
                         break
                         
-                    tasks.append(self.check_sku_exists(session, start))
-                    start += 1
+                    sku = skus_to_scan[current_index]
+                    tasks.append(self.check_sku_exists(session, sku))
+                    current_index += 1
                     processed += 1
                     
                     if random.random() < 0.1:
                         elapsed = time.time() - start_time
                         progress = (processed / total) * 100
                         eta = (elapsed / processed) * (total - processed)
-                        print(f"Scan Progress: {progress:.2f}% | SKU: {start} | ETA: {eta/60:.2f} minutes")
+                        print(f"Scan Progress: {progress:.2f}% | SKU: {sku} | ETA: {eta/60:.2f} minutes")
 
                 if tasks:
                     try:
                         await asyncio.gather(*tasks)
                     except Exception as e:
                         print(f"Batch failed: {str(e)}")
-                        failed_skus.extend(range(start - len(tasks), start))
+                        failed_skus.extend(skus_to_scan[current_index - len(tasks):current_index])
                     
                     await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
@@ -168,6 +178,10 @@ class DiscountCrawler:
                                 with open(self.found_skus_file, "a") as f:
                                     f.write(f"{sku}\n")
                                 print(f"✅ Found valid SKU {sku}")
+                            else:
+                                print(f"❌ SKU {sku} exists but no valid title found")
+                        else:
+                            print(f"❌ SKU {sku} not found (no header)")
                         return
                     elif response.status == 429:
                         print(f"{self.RED}Rate limited on SKU {sku}, retrying with new proxy...{self.RESET}")
@@ -175,7 +189,10 @@ class DiscountCrawler:
                     elif response.status in [403, 406, 408, 444]:
                         print(f"{self.RED}Possible bot detection (status {response.status}), rotating session...{self.RESET}")
                         return
-                    
+                    else:
+                        print(f"❌ SKU {sku} not found (status {response.status})")
+                        return
+                        
             except Exception as e:
                 print(f"{self.RED}Error checking SKU {sku}: {str(e)}{self.RESET}")
                 if "proxy" in str(e).lower():
