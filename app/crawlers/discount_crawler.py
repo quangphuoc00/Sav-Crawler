@@ -106,13 +106,9 @@ class DiscountCrawler:
         processed = 0
         total = end - start + 1
         failed_skus = []
+        current_index = start
 
-        # Create shuffled list of SKUs
-        skus_to_scan = list(range(start, end + 1))
-        random.shuffle(skus_to_scan)
-        current_index = 0
-
-        while current_index < total:
+        while current_index <= end:
             conn = aiohttp.TCPConnector(ssl=False, force_close=True)
             timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
             
@@ -126,12 +122,11 @@ class DiscountCrawler:
                     self.batch_size + 2
                 )
 
-                while len(tasks) < batch_size and current_index < total:
+                while len(tasks) < batch_size and current_index <= end:
                     if self._should_rotate_session():
                         break
                         
-                    sku = skus_to_scan[current_index]
-                    tasks.append(self.check_sku_exists(session, sku))
+                    tasks.append(self.check_sku_exists(session, current_index))
                     current_index += 1
                     processed += 1
                     
@@ -139,14 +134,14 @@ class DiscountCrawler:
                         elapsed = time.time() - start_time
                         progress = (processed / total) * 100
                         eta = (elapsed / processed) * (total - processed)
-                        print(f"Scan Progress: {progress:.2f}% | SKU: {sku} | ETA: {eta/60:.2f} minutes")
+                        print(f"Scan Progress: {progress:.2f}% | SKU: {current_index-1} | ETA: {eta/60:.2f} minutes")
 
                 if tasks:
                     try:
                         await asyncio.gather(*tasks)
                     except Exception as e:
                         print(f"Batch failed: {str(e)}")
-                        failed_skus.extend(skus_to_scan[current_index - len(tasks):current_index])
+                        failed_skus.extend(range(current_index - len(tasks), current_index))
                     
                     await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
