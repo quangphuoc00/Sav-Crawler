@@ -1,32 +1,62 @@
 [
   {
     "entryPoint": "dc.oxylabs.io",
-    "ip": "93.115.200.159",
+    "ip": "207.199.188.221",
     "port": 8001,
     "countryCode": "US"
   },
   {
     "entryPoint": "dc.oxylabs.io",
-    "ip": "93.115.200.158",
+    "ip": "207.199.188.222",
     "port": 8002,
     "countryCode": "US"
   },
   {
     "entryPoint": "dc.oxylabs.io",
-    "ip": "93.115.200.157",
+    "ip": "207.199.188.223",
     "port": 8003,
     "countryCode": "US"
   },
   {
     "entryPoint": "dc.oxylabs.io",
-    "ip": "93.115.200.156",
+    "ip": "207.199.188.224",
     "port": 8004,
     "countryCode": "US"
   },
   {
     "entryPoint": "dc.oxylabs.io",
-    "ip": "93.115.200.155",
+    "ip": "207.199.188.225",
     "port": 8005,
+    "countryCode": "US"
+  },
+  {
+    "entryPoint": "dc.oxylabs.io",
+    "ip": "207.199.188.226",
+    "port": 8006,
+    "countryCode": "US"
+  },
+  {
+    "entryPoint": "dc.oxylabs.io",
+    "ip": "207.199.188.227",
+    "port": 8007,
+    "countryCode": "US"
+  },
+  {
+    "entryPoint": "dc.oxylabs.io",
+    "ip": "207.199.188.228",
+    "port": 8008,
+    "countryCode": "US"
+  },
+  {
+    "entryPoint": "dc.oxylabs.io",
+    "ip": "207.199.188.229",
+    "port": 8009,
+    "countryCode": "US"
+  },
+  {
+    "entryPoint": "dc.oxylabs.io",
+    "ip": "207.199.188.23",
+    "port": 8010,
     "countryCode": "US"
   }
 ]

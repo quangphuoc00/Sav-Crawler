@@ -22,7 +22,7 @@ DEFAULT_HEADERS = {
 }
 
 PROXY_AUTH = {
-    'username': 'user-savai_AElUv',
+    'username': 'user-tekinno_obTwW',
     'password': '_ThoiDungHack123'
 }
 
