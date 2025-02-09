@@ -40,4 +40,7 @@ crawler_progress/
 
 # Environment variables
 .env
-.env.* found_skus.txt
+.env.*
+
+# Ignore found_skus.txt
+found_skus.txt
