@@ -10,6 +10,9 @@ from app.utils import get_random_headers, get_random_proxy, load_proxies
 from bs4 import BeautifulSoup
 import re
 import threading
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 class DiscountCrawler:
     def __init__(self, base_url, batch_size, min_delay, max_delay, save_interval, site_name):
@@ -36,6 +39,10 @@ class DiscountCrawler:
         
         # Add thread-safe print lock
         self.print_lock = threading.Lock()
+
+        self.receiver_email = "tekinno.sw@gmail.com"
+        self.sender_email = os.getenv('EMAIL_SENDER', 'ddqphuoc@gmail.com')
+        self.email_password = os.getenv('EMAIL_PASSWORD')
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -100,53 +107,88 @@ class DiscountCrawler:
             print(f"{self.RED}[UPLOAD] API URL being used: {self.api_url}{self.RESET}")
             return False
 
+    async def send_email(self, subject: str, body: str):
+        try:
+            message = MIMEMultipart()
+            message["From"] = self.sender_email
+            message["To"] = self.receiver_email
+            message["Subject"] = subject
+            message.attach(MIMEText(body, "plain"))
+
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                server.login(self.sender_email, self.email_password)
+                server.send_message(message)
+                print(f"Email sent: {subject}")
+        except Exception as e:
+            print(f"{self.RED}Failed to send email: {str(e)}{self.RESET}")
+
     async def scan_sku_range(self, start: int = 1, end: int = 1000) -> None:
         """First phase: Scan SKU range to find valid products and save to file"""
-        start_time = time.time()
-        processed = 0
-        total = end - start + 1
-        failed_skus = []
-        current_index = start
+        try:
+            start_time = time.time()
+            processed = 0
+            total = end - start + 1
+            failed_skus = []
+            current_index = start
 
-        while current_index <= end:
-            conn = aiohttp.TCPConnector(ssl=False, force_close=True)
-            timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
-            
-            async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
-                self.session_start_time = time.time()
-                self.requests_count = 0
+            while current_index <= end:
+                conn = aiohttp.TCPConnector(ssl=False, force_close=True)
+                timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
                 
-                tasks = []
-                batch_size = random.randint(
-                    max(1, self.batch_size - 2),
-                    self.batch_size + 2
-                )
+                async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
+                    self.session_start_time = time.time()
+                    self.requests_count = 0
+                    
+                    tasks = []
+                    batch_size = random.randint(
+                        max(1, self.batch_size - 2),
+                        self.batch_size + 2
+                    )
 
-                while len(tasks) < batch_size and current_index <= end:
-                    if self._should_rotate_session():
-                        break
+                    while len(tasks) < batch_size and current_index <= end:
+                        if self._should_rotate_session():
+                            break
+                            
+                        tasks.append(self.check_sku_exists(session, current_index))
+                        current_index += 1
+                        processed += 1
                         
-                    tasks.append(self.check_sku_exists(session, current_index))
-                    current_index += 1
-                    processed += 1
-                    
-                    if random.random() < 0.1:
-                        elapsed = time.time() - start_time
-                        progress = (processed / total) * 100
-                        eta = (elapsed / processed) * (total - processed)
-                        print(f"Scan Progress: {progress:.2f}% | SKU: {current_index-1} | ETA: {eta/60:.2f} minutes")
+                        if random.random() < 0.1:
+                            elapsed = time.time() - start_time
+                            progress = (processed / total) * 100
+                            eta = (elapsed / processed) * (total - processed)
+                            print(f"Scan Progress: {progress:.2f}% | SKU: {current_index-1} | ETA: {eta/60:.2f} minutes")
 
-                if tasks:
-                    try:
-                        await asyncio.gather(*tasks)
-                    except Exception as e:
-                        print(f"Batch failed: {str(e)}")
-                        failed_skus.extend(range(current_index - len(tasks), current_index))
-                    
-                    await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
+                    if tasks:
+                        try:
+                            await asyncio.gather(*tasks)
+                        except Exception as e:
+                            print(f"Batch failed: {str(e)}")
+                            failed_skus.extend(range(current_index - len(tasks), current_index))
+                        
+                        await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
-        print(f"\nScan completed! Processed {processed} SKUs in {(time.time() - start_time)/60:.2f} minutes")
-        print(f"Failed SKUs during scan: {len(failed_skus)}")
+            elapsed_time = (time.time() - start_time) / 60
+            completion_message = (
+                f"Scan completed!\n"
+                f"Processed SKUs: {start} to {end}\n"
+                f"Time taken: {elapsed_time:.2f} minutes\n"
+                f"Failed SKUs: {len(failed_skus)}"
+            )
+            print(completion_message)
+            await self.send_email(
+                f"[SavAI-Crawler] Scan Completed - {self.site_name}",
+                completion_message
+            )
+
+        except Exception as e:
+            error_message = f"Error during scan: {str(e)}"
+            print(f"{self.RED}{error_message}{self.RESET}")
+            await self.send_email(
+                f"[SavAI-Crawler] Scan Error - {self.site_name}",
+                error_message
+            )
+            raise
 
     async def check_sku_exists(self, session: aiohttp.ClientSession, sku: int):
         """Check if a SKU exists and has valid title"""
@@ -199,72 +241,89 @@ class DiscountCrawler:
             if retry_count < max_retries:
                 await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
-    async def scrape_found_skus(self, warehouse_ids: List[int]) -> None:
+    async def scrape_found_skus(self, warehouse_ids: List[int], skus: List[int]) -> None:
         """Second phase: Parse and upload data for found SKUs"""
-        try:
-            with open(self.found_skus_file, "r") as f:
-                skus = [int(line.strip()) for line in f if line.strip()]
-        except FileNotFoundError:
-            print(f"{self.RED}No found SKUs file exists at {self.found_skus_file}{self.RESET}")
+        if not skus:
+            print(f"{self.RED}No SKUs provided to scrape{self.RESET}")
             return
 
-        start_time = time.time()
-        processed = 0
-        total = len(skus)
-        failed_skus = []
-        current_index = 0
+        try:
+            start_time = time.time()
+            processed = 0
+            total = len(skus)
+            failed_skus = []
+            current_index = 0
 
-        while current_index < total:
-            conn = aiohttp.TCPConnector(ssl=False, force_close=True)
-            timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
-            
-            async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
-                self.session_start_time = time.time()
-                self.requests_count = 0
+            while current_index < total:
+                conn = aiohttp.TCPConnector(ssl=False, force_close=True)
+                timeout = aiohttp.ClientTimeout(total=60, connect=20, sock_read=20)
                 
-                tasks = []
-                batch_size = random.randint(
-                    max(1, self.batch_size - 2),
-                    self.batch_size + 2
-                )
+                async with aiohttp.ClientSession(connector=conn, timeout=timeout) as session:
+                    self.session_start_time = time.time()
+                    self.requests_count = 0
+                    
+                    tasks = []
+                    batch_size = random.randint(
+                        max(1, self.batch_size - 2),
+                        self.batch_size + 2
+                    )
 
-                while len(tasks) < batch_size and current_index < total:
-                    if self._should_rotate_session():
-                        break
+                    while len(tasks) < batch_size and current_index < total:
+                        if self._should_rotate_session():
+                            break
+                            
+                        sku = skus[current_index]
+                        tasks.append(self.fetch_page(session, sku))
+                        current_index += 1
+                        processed += 1
                         
-                    sku = skus[current_index]
-                    tasks.append(self.fetch_page(session, sku))
-                    current_index += 1
-                    processed += 1
-                    
-                    if random.random() < 0.1:
-                        elapsed = time.time() - start_time
-                        progress = (processed / total) * 100
-                        eta = (elapsed / processed) * (total - processed)
-                        print(f"Scrape Progress: {progress:.2f}% | SKU: {sku} | ETA: {eta/60:.2f} minutes")
+                        if random.random() < 0.1:
+                            elapsed = time.time() - start_time
+                            progress = (processed / total) * 100
+                            eta = (elapsed / processed) * (total - processed)
+                            print(f"Scrape Progress: {progress:.2f}% | SKU: {sku} | ETA: {eta/60:.2f} minutes")
 
-                if tasks:
-                    try:
-                        await asyncio.gather(*tasks)
-                        self.items_to_update.extend([item for item in self.results.values() if item])
-                    except Exception as e:
-                        print(f"Batch failed: {str(e)}")
-                        failed_skus.extend(skus[current_index - len(tasks):current_index])
-                    
-                    if len(self.items_to_update) >= self.save_interval:
-                        if not await self._update_products(warehouse_ids):
-                            failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
-                    
-                    self.results = {}
-                    await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
+                    if tasks:
+                        try:
+                            await asyncio.gather(*tasks)
+                            self.items_to_update.extend([item for item in self.results.values() if item])
+                        except Exception as e:
+                            print(f"Batch failed: {str(e)}")
+                            failed_skus.extend(skus[current_index - len(tasks):current_index])
+                        
+                        if len(self.items_to_update) >= self.save_interval:
+                            if not await self._update_products(warehouse_ids):
+                                failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
+                        
+                        self.results = {}
+                        await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
-        # Update any remaining items
-        if self.items_to_update:
-            if not await self._update_products(warehouse_ids):
-                failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
+            # Update any remaining items
+            if self.items_to_update:
+                if not await self._update_products(warehouse_ids):
+                    failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
 
-        print(f"\nScrape completed! Processed {processed} SKUs in {(time.time() - start_time)/60:.2f} minutes")
-        print(f"Failed SKUs during scrape: {len(failed_skus)}")
+            elapsed_time = (time.time() - start_time) / 60
+            completion_message = (
+                f"Scrape completed!\n"
+                f"Total SKUs processed: {len(skus)}\n"
+                f"Time taken: {elapsed_time:.2f} minutes\n"
+                f"Failed SKUs: {len(failed_skus)}"
+            )
+            print(completion_message)
+            await self.send_email(
+                f"[SavAI-Crawler] Scrape Completed - {self.site_name}",
+                completion_message
+            )
+
+        except Exception as e:
+            error_message = f"Error during scrape: {str(e)}"
+            print(f"{self.RED}{error_message}{self.RESET}")
+            await self.send_email(
+                f"[SavAI-Crawler] Scrape Error - {self.site_name}",
+                error_message
+            )
+            raise
 
     async def fetch_page(self, session: aiohttp.ClientSession, sku: int):
         """Fetch a single product page and parse item information"""

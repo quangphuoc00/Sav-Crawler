@@ -1,59 +1,110 @@
 import asyncio
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
 from app.crawlers.discount_crawler import DiscountCrawler
 from app.config import CRAWLER_CONFIGS, CRAWLER_COMMON
+import os
 
+app = FastAPI()
 
-async def run_crawler_scan(site: str, start: int, end: int):
-    if site not in CRAWLER_CONFIGS:
-        raise ValueError(f"No configuration found for site: {site}")
-    
-    config = CRAWLER_CONFIGS[site]
-    
-    # Initialize crawler with configuration from config.py
-    crawler = DiscountCrawler(
-        batch_size=CRAWLER_COMMON["batch_size"],
-        min_delay=CRAWLER_COMMON["min_delay"],
-        max_delay=CRAWLER_COMMON["max_delay"],
-        save_interval=CRAWLER_COMMON["save_interval"],
-        base_url=config["base_url"],
-        site_name=config["site_name"]
-    )
-    
-    # Start scanning using provided range
-    await crawler.scan_sku_range(
-        start=start,
-        end=end
-    )
+class ScrapeRequest(BaseModel):
+    site: str
+    skus: List[int]
 
-async def run_crawler_scrape(site: str):
-    if site not in CRAWLER_CONFIGS:
-        raise ValueError(f"No configuration found for site: {site}")
-    
-    config = CRAWLER_CONFIGS[site]
-    
-    # Initialize crawler with configuration from config.py
-    crawler = DiscountCrawler(
-        batch_size=CRAWLER_COMMON["batch_size"],
-        min_delay=CRAWLER_COMMON["min_delay"],
-        max_delay=CRAWLER_COMMON["max_delay"],
-        save_interval=CRAWLER_COMMON["save_interval"],
-        base_url=config["base_url"],
-        site_name=config["site_name"]
-    )
-    
-    # Start scraping found SKUs
-    await crawler.scrape_found_skus(
-        warehouse_ids=config["warehouse_ids"]
-    )
+class ScrapeResponse(BaseModel):
+    success: bool
+    reason: str = ""
 
-async def main():
-    # Run scanner for cocowest
-    print("Starting SKU scanning phase...")
-    await run_crawler_scan("cocowest", start=113676, end=2000000)
-    
-    # Run scraper for found SKUs
-    # print("\nStarting SKU scraping phase...")
-    # await run_crawler_scrape("cocowest")
+class ScanRequest(BaseModel):
+    site: str
+    start: int
+    end: int
+
+class FoundSkusResponse(BaseModel):
+    skus: List[int]
+    count: int
+
+@app.post("/api/scrape", response_model=ScrapeResponse)
+async def scrape_skus(request: ScrapeRequest):
+    try:
+        if request.site not in CRAWLER_CONFIGS:
+            raise ValueError(f"No configuration found for site: {request.site}")
+        
+        if not request.skus:
+            raise ValueError("No SKUs provided")
+            
+        config = CRAWLER_CONFIGS[request.site]
+        
+        # Initialize crawler with configuration
+        crawler = DiscountCrawler(
+            batch_size=CRAWLER_COMMON["batch_size"],
+            min_delay=CRAWLER_COMMON["min_delay"],
+            max_delay=CRAWLER_COMMON["max_delay"],
+            save_interval=CRAWLER_COMMON["save_interval"],
+            base_url=config["base_url"],
+            site_name=config["site_name"]
+        )
+        
+        scraping_task = asyncio.create_task(crawler.scrape_found_skus(
+            warehouse_ids=config["warehouse_ids"],
+            skus=request.skus
+        ))
+        
+        return ScrapeResponse(success=True, reason="Scrape started in background")
+        
+    except ValueError as e:
+        return ScrapeResponse(success=False, reason=str(e))
+    except Exception as e:
+        return ScrapeResponse(success=False, reason=f"Unexpected error: {str(e)}")
+
+@app.post("/api/scan", response_model=ScrapeResponse)
+async def scan_sku_range(request: ScanRequest):
+    try:
+        if request.site not in CRAWLER_CONFIGS:
+            raise ValueError(f"No configuration found for site: {request.site}")
+        
+        if request.start > request.end:
+            raise ValueError("Start value must be less than end value")
+            
+        config = CRAWLER_CONFIGS[request.site]
+        
+        crawler = DiscountCrawler(
+            batch_size=CRAWLER_COMMON["batch_size"],
+            min_delay=CRAWLER_COMMON["min_delay"],
+            max_delay=CRAWLER_COMMON["max_delay"],
+            save_interval=CRAWLER_COMMON["save_interval"],
+            base_url=config["base_url"],
+            site_name=config["site_name"]
+        )
+        
+        scanning_task = asyncio.create_task(crawler.scan_sku_range(
+            start=request.start,
+            end=request.end
+        ))
+        
+        return ScrapeResponse(success=True, reason="Scan started in background")
+        
+    except ValueError as e:
+        return ScrapeResponse(success=False, reason=str(e))
+    except Exception as e:
+        return ScrapeResponse(success=False, reason=f"Unexpected error: {str(e)}")
+
+@app.get("/api/found-skus", response_model=FoundSkusResponse)
+async def get_found_skus():
+    try:
+        found_skus_path = "found_skus.txt"
+        if not os.path.exists(found_skus_path):
+            return FoundSkusResponse(skus=[], count=0)
+            
+        with open(found_skus_path, "r") as f:
+            skus = [int(line.strip()) for line in f if line.strip()]
+        
+        return FoundSkusResponse(skus=skus, count=len(skus))
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

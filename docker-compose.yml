@@ -9,6 +9,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1  # Enable real-time logging
       - API_URL=http://66.94.112.14:8080
+      - EMAIL_SENDER=ddqphuoc@gmail.com
+      - EMAIL_PASSWORD=wfbgqfairssewhfk
     # restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -17,4 +19,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    # tail: "100" 
+    # tail: "100"
+    ports:
+      - "8000:8000"  # Expose the FastAPI port 
