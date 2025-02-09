@@ -11,4 +11,11 @@ services:
       - API_URL=http://66.94.112.14:8080
     # restart: unless-stopped
     extra_hosts:
-      - "host.docker.internal:host-gateway" 
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        # Only show last 100 lines
+        tail: "100" 
