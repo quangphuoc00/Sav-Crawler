@@ -17,5 +17,4 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-        # Only show last 100 lines
-        tail: "100" 
+    # tail: "100" 
