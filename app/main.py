@@ -95,10 +95,14 @@ async def get_found_skus():
     try:
         found_skus_path = "found_skus.txt"
         if not os.path.exists(found_skus_path):
+            # Create the file if it doesn't exist
+            with open(found_skus_path, "w") as f:
+                pass  # Create empty file
             return FoundSkusResponse(skus=[], count=0)
             
         with open(found_skus_path, "r") as f:
-            skus = [int(line.strip()) for line in f if line.strip()]
+            # Read lines, convert to integers, remove duplicates with set, and sort
+            skus = sorted(set(int(line.strip()) for line in f if line.strip()))
         
         return FoundSkusResponse(skus=skus, count=len(skus))
         

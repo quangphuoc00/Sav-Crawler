@@ -34,8 +34,13 @@ class DiscountCrawler:
         
         # Initialize log file with unique name based on site_name
         log_file = f"/app/found_skus.txt"  # Match the Docker mount point exactly
-        self.sku_log_file = open(log_file, "a")
+        self.sku_log_file = open(log_file, "a")  # Create if not exists, append mode
         self.found_skus_file = log_file
+        
+        # Create found_skus.txt if it doesn't exist
+        if not os.path.exists(self.found_skus_file):
+            with open(self.found_skus_file, "w") as f:
+                pass  # Create empty file
         
         # Add thread-safe print lock
         self.print_lock = threading.Lock()
