@@ -72,6 +72,8 @@ class DiscountCrawler:
         self.receiver_email = "tekinno.sw@gmail.com"
         self.sender_email = os.getenv('EMAIL_SENDER', 'ddqphuoc@gmail.com')
         self.email_password = os.getenv('EMAIL_PASSWORD')
+        self.existing_skus = 0
+        self.non_existing_skus = 0
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -157,8 +159,10 @@ class DiscountCrawler:
             start_time = time.time()
             processed = 0
             total = end - start + 1
-            failed_skus = []
             current_index = start
+            # Add counters for existing and non-existing SKUs
+            existing_skus = 0
+            non_existing_skus = 0
 
             while current_index <= end:
                 conn = aiohttp.TCPConnector(ssl=False, force_close=True)
@@ -193,7 +197,6 @@ class DiscountCrawler:
                             await asyncio.gather(*tasks)
                         except Exception as e:
                             print(f"Batch failed: {str(e)}")
-                            failed_skus.extend(range(current_index - len(tasks), current_index))
                         
                         await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
@@ -202,7 +205,8 @@ class DiscountCrawler:
                 f"Scan completed!\n"
                 f"Processed SKUs: {start} to {end}\n"
                 f"Time taken: {elapsed_time:.2f} minutes\n"
-                f"Failed SKUs: {len(failed_skus)}"
+                f"Existing SKUs: {existing_skus}\n"
+                f"Non-existing SKUs: {non_existing_skus}"
             )
             print(completion_message)
             await self.send_email(
@@ -244,10 +248,13 @@ class DiscountCrawler:
                                 with open(self.found_skus_file, "a") as f:
                                     f.write(f"{sku}\n")
                                 print(f"✅ Found valid SKU {sku}")
+                                self.existing_skus += 1  # Increment existing SKUs counter
                             else:
                                 print(f"❌ SKU {sku} exists but no valid title found")
+                                self.non_existing_skus += 1  # Increment non-existing SKUs counter
                         else:
                             print(f"❌ SKU {sku} not found (no header)")
+                            self.non_existing_skus += 1  # Increment non-existing SKUs counter
                         return
                     elif response.status == 429:
                         print(f"{self.RED}Rate limited on SKU {sku}, retrying with new proxy...{self.RESET}")
