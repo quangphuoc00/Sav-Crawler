@@ -93,7 +93,7 @@ async def scan_sku_range(request: ScanRequest):
 @app.get("/api/found-skus", response_model=FoundSkusResponse)
 async def get_found_skus():
     try:
-        found_skus_dir = "./found_skus"
+        found_skus_dir = "../found_skus"
         # Create directory if it doesn't exist
         os.makedirs(found_skus_dir, exist_ok=True)
         
