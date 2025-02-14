@@ -36,16 +36,30 @@ class DiscountCrawler:
         # Generate unique filename with timestamp
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         log_dir = "/app/found_skus"  # Create a directory for all SKU files
-        os.makedirs(log_dir, exist_ok=True)
         
-        # Create unique file for this run
-        self.found_skus_file = os.path.join(log_dir, f"found_skus_{self.site_name}_{timestamp}.txt")
-        
-        # Create the file
-        with open(self.found_skus_file, "w") as f:
-            pass  # Create empty file
-        
-        print(f"Created new SKU log file: {self.found_skus_file}")
+        try:
+            # Create directory with full permissions
+            os.makedirs(log_dir, mode=0o777, exist_ok=True)
+            
+            # Create unique file for this run
+            self.found_skus_file = os.path.join(log_dir, f"found_skus_{self.site_name}_{timestamp}.txt")
+            
+            # Create the file with full permissions
+            with open(self.found_skus_file, "w") as f:
+                f.write("")  # Write empty string instead of pass
+            
+            # Set file permissions to be readable/writable
+            os.chmod(self.found_skus_file, 0o666)
+            
+            print(f"Successfully created SKU log file: {self.found_skus_file}")
+            print(f"File exists: {os.path.exists(self.found_skus_file)}")
+            print(f"File permissions: {oct(os.stat(self.found_skus_file).st_mode)[-3:]}")
+            
+        except Exception as e:
+            print(f"{self.RED}Error creating SKU log file: {str(e)}{self.RESET}")
+            print(f"{self.RED}Current working directory: {os.getcwd()}{self.RESET}")
+            print(f"{self.RED}Directory listing of /app: {os.listdir('/app')}{self.RESET}")
+            raise
         
         # Add thread-safe print lock
         self.print_lock = threading.Lock()
