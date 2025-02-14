@@ -13,6 +13,7 @@ import threading
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import datetime
 
 class DiscountCrawler:
     def __init__(self, base_url, batch_size, min_delay, max_delay, save_interval, site_name):
@@ -32,15 +33,19 @@ class DiscountCrawler:
         self.RED = '\033[91m'
         self.RESET = '\033[0m'
         
-        # Initialize log file with unique name based on site_name
-        log_file = f"/app/found_skus.txt"  # Match the Docker mount point exactly
-        self.sku_log_file = open(log_file, "a")  # Create if not exists, append mode
-        self.found_skus_file = log_file
+        # Generate unique filename with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = "/app/found_skus"  # Create a directory for all SKU files
+        os.makedirs(log_dir, exist_ok=True)
         
-        # Create found_skus.txt if it doesn't exist
-        if not os.path.exists(self.found_skus_file):
-            with open(self.found_skus_file, "w") as f:
-                pass  # Create empty file
+        # Create unique file for this run
+        self.found_skus_file = os.path.join(log_dir, f"found_skus_{self.site_name}_{timestamp}.txt")
+        
+        # Create the file
+        with open(self.found_skus_file, "w") as f:
+            pass  # Create empty file
+        
+        print(f"Created new SKU log file: {self.found_skus_file}")
         
         # Add thread-safe print lock
         self.print_lock = threading.Lock()

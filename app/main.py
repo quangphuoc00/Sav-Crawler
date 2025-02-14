@@ -93,18 +93,23 @@ async def scan_sku_range(request: ScanRequest):
 @app.get("/api/found-skus", response_model=FoundSkusResponse)
 async def get_found_skus():
     try:
-        found_skus_path = "found_skus.txt"
-        if not os.path.exists(found_skus_path):
-            # Create the file if it doesn't exist
-            with open(found_skus_path, "w") as f:
-                pass  # Create empty file
-            return FoundSkusResponse(skus=[], count=0)
-            
-        with open(found_skus_path, "r") as f:
-            # Read lines, convert to integers, remove duplicates with set, and sort
-            skus = sorted(set(int(line.strip()) for line in f if line.strip()))
+        found_skus_dir = "app/found_skus"
+        # Create directory if it doesn't exist
+        os.makedirs(found_skus_dir, exist_ok=True)
         
-        return FoundSkusResponse(skus=skus, count=len(skus))
+        all_skus = set()
+        # Read all txt files in the directory
+        for filename in os.listdir(found_skus_dir):
+            if filename.endswith('.txt'):
+                file_path = os.path.join(found_skus_dir, filename)
+                with open(file_path, "r") as f:
+                    # Read lines, convert to integers, and add to set
+                    file_skus = {int(line.strip()) for line in f if line.strip()}
+                    all_skus.update(file_skus)
+        
+        # Convert set to sorted list
+        sorted_skus = sorted(all_skus)
+        return FoundSkusResponse(skus=sorted_skus, count=len(sorted_skus))
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
