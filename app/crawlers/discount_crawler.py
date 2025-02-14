@@ -35,30 +35,39 @@ class DiscountCrawler:
         
         # Generate unique filename with timestamp
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = "/app/found_skus"  # Create a directory for all SKU files
+        log_dir = "./found_skus"  # Change to relative path
         
         try:
+            print(f"Attempting to create directory: {log_dir}")
             # Create directory with full permissions
             os.makedirs(log_dir, mode=0o777, exist_ok=True)
+            print(f"Directory created/exists. Listing contents of current directory: {os.listdir('.')}")
             
             # Create unique file for this run
             self.found_skus_file = os.path.join(log_dir, f"found_skus_{self.site_name}_{timestamp}.txt")
+            print(f"Attempting to create file at: {self.found_skus_file}")
             
-            # Create the file with full permissions
-            with open(self.found_skus_file, "w") as f:
-                f.write("")  # Write empty string instead of pass
+            # Create the file with full permissions using absolute path
+            absolute_path = os.path.abspath(self.found_skus_file)
+            print(f"Absolute path for file: {absolute_path}")
+            
+            with open(absolute_path, "w") as f:
+                f.write(f"SKU Log File Created at {timestamp}\n")  # Write a header line
             
             # Set file permissions to be readable/writable
-            os.chmod(self.found_skus_file, 0o666)
+            os.chmod(absolute_path, 0o666)
             
-            print(f"Successfully created SKU log file: {self.found_skus_file}")
-            print(f"File exists: {os.path.exists(self.found_skus_file)}")
-            print(f"File permissions: {oct(os.stat(self.found_skus_file).st_mode)[-3:]}")
+            print(f"Successfully created SKU log file: {absolute_path}")
+            print(f"File exists: {os.path.exists(absolute_path)}")
+            print(f"File permissions: {oct(os.stat(absolute_path).st_mode)[-3:]}")
+            print(f"Directory contents after file creation: {os.listdir(log_dir)}")
             
         except Exception as e:
             print(f"{self.RED}Error creating SKU log file: {str(e)}{self.RESET}")
             print(f"{self.RED}Current working directory: {os.getcwd()}{self.RESET}")
-            print(f"{self.RED}Directory listing of /app: {os.listdir('/app')}{self.RESET}")
+            print(f"{self.RED}Directory listing of current directory: {os.listdir('.')}{self.RESET}")
+            if os.path.exists(log_dir):
+                print(f"{self.RED}Contents of log directory: {os.listdir(log_dir)}{self.RESET}")
             raise
         
         # Add thread-safe print lock
