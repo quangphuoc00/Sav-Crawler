@@ -5,7 +5,7 @@ services:
       # Mount progress files directory to persist crawler progress
       - ./crawler_progress:/app/crawler_progress
       - ./proxies.json:/app/proxies.json  # Mount proxies.json
-      - ./found_skus:/app/found_skus  # Mount found_skus directory
+      - ./found_skus:/found_skus  # Changed from /app/found_skus to /found_skus
     environment:
       - PYTHONUNBUFFERED=1  # Enable real-time logging
       - API_URL=http://66.94.112.14:8080

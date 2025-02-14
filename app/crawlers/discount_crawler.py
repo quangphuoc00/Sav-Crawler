@@ -35,11 +35,10 @@ class DiscountCrawler:
         
         # Generate unique filename with timestamp
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = "../found_skus"  # Go up one directory from /app to project root
+        log_dir = "/found_skus"  # Changed from "../found_skus" to "/found_skus"
         
         try:
             print(f"Attempting to create/verify directory: {log_dir}")
-            # Create directory if it doesn't exist
             os.makedirs(log_dir, mode=0o777, exist_ok=True)
             print(f"Directory status - exists: {os.path.exists(log_dir)}")
             
@@ -47,10 +46,8 @@ class DiscountCrawler:
             self.found_skus_file = os.path.join(log_dir, f"found_skus_{self.site_name}_{timestamp}.txt")
             print(f"Attempting to create file at: {self.found_skus_file}")
             
-            # Create the file with full permissions
-            with open(self.found_skus_file, "w") as f:
-                f.write(f"# SKU Log File for {self.site_name}\n")
-                f.write(f"# Created: {timestamp}\n")
+            # Create empty file
+            open(self.found_skus_file, "w").close()
             
             # Set file permissions
             os.chmod(self.found_skus_file, 0o666)
@@ -248,13 +245,13 @@ class DiscountCrawler:
                                 with open(self.found_skus_file, "a") as f:
                                     f.write(f"{sku}\n")
                                 print(f"✅ Found valid SKU {sku}")
-                                self.existing_skus += 1  # Increment existing SKUs counter
+                                self.existing_skus += 1
                             else:
                                 print(f"❌ SKU {sku} exists but no valid title found")
-                                self.non_existing_skus += 1  # Increment non-existing SKUs counter
+                                self.non_existing_skus += 1
                         else:
                             print(f"❌ SKU {sku} not found (no header)")
-                            self.non_existing_skus += 1  # Increment non-existing SKUs counter
+                            self.non_existing_skus += 1
                         return
                     elif response.status == 429:
                         print(f"{self.RED}Rate limited on SKU {sku}, retrying with new proxy...{self.RESET}")
