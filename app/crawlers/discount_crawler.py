@@ -195,8 +195,8 @@ class DiscountCrawler:
                 # Add to price histories
                 for price in item["price_history"]:
                     try:
-                        date_posted = datetime.strptime(price["date_posted"], "%Y-%m-%d").date()
-                        expiry = datetime.strptime(price["expiry"], "%Y-%m-%d").date() if price["expiry"] else None
+                        date_posted = datetime.datetime.strptime(price["date_posted"], "%Y-%m-%d").date()
+                        expiry = datetime.datetime.strptime(price["expiry"], "%Y-%m-%d").date() if price["expiry"] else None
                     except ValueError:
                         print(f"[DB] Invalid date format for SKU {sku}, skipping price entry")
                         continue
