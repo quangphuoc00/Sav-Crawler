@@ -156,7 +156,7 @@ class DiscountCrawler:
         if not self.items_to_update:
             return True
 
-        print(f"\n[UPLOAD] Preparing to upload {len(self.items_to_update)} items to API...")
+        print(f"\n[UPLOAD] Preparing to upload {len(self.items_to_update)} items to API....")
 
         # Get auth token if we don't have one
         if not self.auth_token:
