@@ -17,8 +17,6 @@ services:
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_PREFIX=${S3_PREFIX}
     # restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     logging:
       driver: "json-file"
       options:
@@ -27,3 +25,7 @@ services:
     # tail: "100"
     ports:
       - "8000:8000"  # Expose the FastAPI port 
+      
+networks:
+  backend:
+    external: true  # Use the same network as the DB     
