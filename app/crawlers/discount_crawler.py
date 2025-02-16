@@ -173,12 +173,16 @@ class DiscountCrawler:
                 self.db_cursor = self.db_conn.cursor()
 
             # Prepare product items and price history data
+            # Deduplicate items by SKU, keeping the latest entry
+            deduplicated_items = {}
+            for item in self.items_to_update:
+                sku = int(item["url"].split("/")[-1])
+                deduplicated_items[sku] = item
+
             product_items = []
             price_histories = []
 
-            for item in self.items_to_update:
-                sku = int(item["url"].split("/")[-1])
-                
+            for sku, item in deduplicated_items.items():
                 # Process image if exists
                 image_url = item.get("image_url", "")
                 if image_url:
@@ -193,38 +197,47 @@ class DiscountCrawler:
                 ))
 
                 # Add to price histories
+                # Deduplicate price histories by date_posted for each SKU
+                price_dict = {}
                 for price in item["price_history"]:
                     try:
                         date_posted = datetime.datetime.strptime(price["date_posted"], "%Y-%m-%d").date()
                         expiry = datetime.datetime.strptime(price["expiry"], "%Y-%m-%d").date() if price["expiry"] else None
+                        
+                        # Use (sku, date_posted) as key to deduplicate
+                        key = (sku, date_posted)
+                        price_dict[key] = (
+                            sku,
+                            date_posted,
+                            float(price["savings"]),
+                            expiry,
+                            float(price["final_price"]),
+                            warehouse_ids
+                        )
                     except ValueError:
                         print(f"[DB] Invalid date format for SKU {sku}, skipping price entry")
                         continue
 
-                    price_histories.append((
-                        sku,
-                        date_posted,
-                        float(price["savings"]),
-                        expiry,
-                        float(price["final_price"]),
-                        warehouse_ids
-                    ))
+                # Add deduplicated price histories
+                price_histories.extend(price_dict.values())
 
-            # Insert product items directly
-            execute_values(
-                self.db_cursor,
-                """
-                INSERT INTO product_item (sku, name, image_url, category)
-                VALUES %s
-                ON CONFLICT (sku) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    image_url = EXCLUDED.image_url,
-                    category = EXCLUDED.category
-                """,
-                product_items
-            )
+            # Insert product items with conflict resolution
+            if product_items:
+                execute_values(
+                    self.db_cursor,
+                    """
+                    INSERT INTO product_item (sku, name, image_url, category)
+                    VALUES %s
+                    ON CONFLICT (sku) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        image_url = COALESCE(EXCLUDED.image_url, product_item.image_url),
+                        category = COALESCE(EXCLUDED.category, product_item.category),
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    product_items
+                )
 
-            # Insert price histories
+            # Insert price histories with conflict resolution
             if price_histories:
                 execute_values(
                     self.db_cursor,
@@ -234,15 +247,16 @@ class DiscountCrawler:
                     VALUES %s
                     ON CONFLICT (item_sku, date_posted) DO UPDATE SET
                         savings = EXCLUDED.savings,
-                        expiry = EXCLUDED.expiry,
+                        expiry = COALESCE(EXCLUDED.expiry, price_history.expiry),
                         final_price = EXCLUDED.final_price,
-                        warehouse_ids = EXCLUDED.warehouse_ids
+                        warehouse_ids = EXCLUDED.warehouse_ids,
+                        updated_at = CURRENT_TIMESTAMP
                     """,
                     price_histories
                 )
 
             self.db_conn.commit()
-            print(f"[DB] ✅ Successfully inserted {len(product_items)} products and {len(price_histories)} price histories")
+            print(f"[DB] ✅ Successfully inserted/updated {len(product_items)} products and {len(price_histories)} price histories")
             self.items_to_update = []
             return True
 
