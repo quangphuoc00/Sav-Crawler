@@ -9,8 +9,13 @@ services:
     environment:
       - PYTHONUNBUFFERED=1  # Enable real-time logging
       - API_URL=http://66.94.112.14:8080
-      - EMAIL_SENDER=ddqphuoc@gmail.com
-      - EMAIL_PASSWORD=wfbgqfairssewhfk
+      - EMAIL_SENDER=${EMAIL_SENDER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_PREFIX=${S3_PREFIX}
     # restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
