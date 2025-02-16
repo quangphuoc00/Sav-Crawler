@@ -62,7 +62,7 @@ class DiscountCrawler:
         )
         self.s3_prefix = os.getenv('S3_PREFIX', 'product-images/')
 
-        # Add database connection
+        # Update database connection to use environment variables directly
         self.db_config = {
             'dbname': os.getenv('POSTGRES_DB', 'savai_db'),
             'user': os.getenv('POSTGRES_USER', 'postgres'),

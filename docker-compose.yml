@@ -16,6 +16,14 @@ services:
       - AWS_REGION=${AWS_REGION}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_PREFIX=${S3_PREFIX}
+      # Add database environment variables
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=savai_db
+      - DB_HOST=db
+      - DB_PORT=5432
+    networks:
+      - backend  # Add this service to the backend network
     # restart: unless-stopped
     logging:
       driver: "json-file"
@@ -28,4 +36,5 @@ services:
       
 networks:
   backend:
-    external: true  # Use the same network as the DB     
+    name: backend  # Use the same network name as defined in the DB docker-compose
+    external: true  # Use the existing network
