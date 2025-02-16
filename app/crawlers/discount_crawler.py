@@ -18,6 +18,8 @@ import boto3
 from PIL import Image
 import io
 import requests
+import psycopg2
+from psycopg2.extras import execute_values
 
 class DiscountCrawler:
     def __init__(self, base_url, batch_size, min_delay, max_delay, save_interval, site_name):
@@ -31,10 +33,6 @@ class DiscountCrawler:
         self.proxies = load_proxies()
         self.session_start_time = time.time()
         self.requests_count = 0
-        base_api_url = os.getenv('API_URL', 'http://host.docker.internal:8080')
-        self.api_url = f"{base_api_url}/api/products/update"
-        self.login_url = f"{base_api_url}/api/login"
-        self.auth_token = None
         self.items_to_update = []
         # Add ANSI color codes
         self.RED = '\033[91m'
@@ -63,6 +61,17 @@ class DiscountCrawler:
             region_name=self.aws_region
         )
         self.s3_prefix = os.getenv('S3_PREFIX', 'product-images/')
+
+        # Add database connection
+        self.db_config = {
+            'dbname': os.getenv('POSTGRES_DB', 'savai_db'),
+            'user': os.getenv('POSTGRES_USER', 'postgres'),
+            'password': os.getenv('POSTGRES_PASSWORD', 'postgres'),
+            'host': os.getenv('DB_HOST', 'db'),
+            'port': os.getenv('DB_PORT', '5432')
+        }
+        self.db_conn = None
+        self.db_cursor = None
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -152,96 +161,102 @@ class DiscountCrawler:
             return ""
 
     async def _update_products(self, warehouse_ids: List[int]) -> bool:
-        """Update products via API"""
+        """Update products in PostgreSQL database"""
         if not self.items_to_update:
             return True
 
-        print(f"\n[UPLOAD] Preparing to upload {len(self.items_to_update)} items to API....")
-
-        # Get auth token if we don't have one
-        if not self.auth_token:
-            if not await self._get_auth_token():
-                return False
-
-        # Prepare items for API
-        items_for_api = []
-        for item in self.items_to_update:
-            sku = item["url"].split("/")[-1]
-            
-            # Process image if exists
-            image_url = item.get("image_url", "")
-            print(f"[IMAGE]image_url: {image_url}")
-            if image_url:
-                image_url = await self.process_and_upload_image(image_url, sku)
-
-            # Extract SKU from URL and ensure it's a string
-            sku = item["url"].split("/")[-1]
-
-            # Ensure price history format is correct
-            price_history = []
-            for price in item["price_history"]:
-                price_entry = {
-                    "date_posted": price["date_posted"],
-                    "savings": price["savings"],
-                    "expiry": price["expiry"],
-                    "final_price": price["final_price"]
-                }
-                price_history.append(price_entry)
-
-            api_item = {
-                "sku": int(sku),
-                "name": item["name"],
-                "image_url": image_url,
-                "warehouse_ids": warehouse_ids,
-                "price_history": price_history
-            }
-            items_for_api.append(api_item)
-
-        # Add debug logging for request payload
-        print("\n[DEBUG] API Request Details:")
-        print(f"URL: {self.api_url}")
-        print("Headers:", {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.auth_token[:10]}..." if self.auth_token else None
-        })
-        print("Payload Sample (first item):")
-        if items_for_api:
-            print(json.dumps(items_for_api[0], indent=2))
-        print(f"Total items in payload: {len(items_for_api)}")
+        print(f"\n[DB] Preparing to insert {len(self.items_to_update)} items into database...")
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.api_url,
-                    json=items_for_api,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.auth_token}"
-                    }
-                ) as response:
-                    response_text = await response.text()
-                    
-                    if response.status == 200:
-                        result = await response.json()
-                        if result.get("success"):
-                            print(f"[UPLOAD] ✅ Successfully uploaded {len(items_for_api)} items")
-                            self.items_to_update = []
-                            return True
-                    elif response.status == 401:  # Unauthorized - token might be expired
-                        print(f"{self.RED}[UPLOAD] Token expired, getting new token...{self.RESET}")
-                        if await self._get_auth_token():
-                            # Retry the upload with new token
-                            return await self._update_products(warehouse_ids)
-                        return False
-                    
-                    # Only print response details if upload failed
-                    print(f"{self.RED}[UPLOAD] ❌ Failed to upload {len(items_for_api)} items{self.RESET}")
-                    print(f"{self.RED}[UPLOAD] Response Status: {response.status}{self.RESET} | message: {response_text}{self.RESET}")
-                    return False
+            if not self.db_conn or self.db_conn.closed:
+                self.db_conn = psycopg2.connect(**self.db_config)
+                self.db_cursor = self.db_conn.cursor()
+
+            # Prepare product items and price history data
+            product_items = []
+            price_histories = []
+
+            for item in self.items_to_update:
+                sku = int(item["url"].split("/")[-1])
+                
+                # Process image if exists
+                image_url = item.get("image_url", "")
+                if image_url:
+                    image_url = await self.process_and_upload_image(image_url, str(sku))
+
+                # Add to product items
+                product_items.append((
+                    sku,
+                    item["name"],
+                    image_url,
+                    None  # category is null for now
+                ))
+
+                # Add to price histories
+                for price in item["price_history"]:
+                    try:
+                        date_posted = datetime.strptime(price["date_posted"], "%Y-%m-%d").date()
+                        expiry = datetime.strptime(price["expiry"], "%Y-%m-%d").date() if price["expiry"] else None
+                    except ValueError:
+                        print(f"[DB] Invalid date format for SKU {sku}, skipping price entry")
+                        continue
+
+                    price_histories.append((
+                        sku,
+                        date_posted,
+                        float(price["savings"]),
+                        expiry,
+                        float(price["final_price"]),
+                        warehouse_ids
+                    ))
+
+            # Insert product items directly
+            execute_values(
+                self.db_cursor,
+                """
+                INSERT INTO product_item (sku, name, image_url, category)
+                VALUES %s
+                ON CONFLICT (sku) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    image_url = EXCLUDED.image_url,
+                    category = EXCLUDED.category
+                """,
+                product_items
+            )
+
+            # Insert price histories
+            if price_histories:
+                execute_values(
+                    self.db_cursor,
+                    """
+                    INSERT INTO price_history 
+                    (item_sku, date_posted, savings, expiry, final_price, warehouse_ids)
+                    VALUES %s
+                    ON CONFLICT (item_sku, date_posted) DO UPDATE SET
+                        savings = EXCLUDED.savings,
+                        expiry = EXCLUDED.expiry,
+                        final_price = EXCLUDED.final_price,
+                        warehouse_ids = EXCLUDED.warehouse_ids
+                    """,
+                    price_histories
+                )
+
+            self.db_conn.commit()
+            print(f"[DB] ✅ Successfully inserted {len(product_items)} products and {len(price_histories)} price histories")
+            self.items_to_update = []
+            return True
+
         except Exception as e:
-            print(f"{self.RED}[UPLOAD] ❌ Error uploading products: {str(e)}{self.RESET}")
-            print(f"{self.RED}[UPLOAD] API URL being used: {self.api_url}{self.RESET}")
+            if self.db_conn:
+                self.db_conn.rollback()
+            print(f"{self.RED}[DB] ❌ Error updating database: {str(e)}{self.RESET}")
             return False
+
+        finally:
+            if self.db_cursor:
+                self.db_cursor.close()
+            if self.db_conn:
+                self.db_conn.close()
 
     async def send_email(self, subject: str, body: str):
         try:
@@ -420,7 +435,10 @@ class DiscountCrawler:
             start_time = time.time()
             processed = 0
             total = len(skus)
-            failed_skus = []
+            failed_skus = {
+                'parse_failed': [],
+                'db_failed': []
+            }
             current_index = 0
 
             try:
@@ -443,7 +461,7 @@ class DiscountCrawler:
                                 break
                                 
                             sku = skus[current_index]
-                            tasks.append(self.fetch_page(session, sku))
+                            tasks.append(self.process_single_sku(session, sku, warehouse_ids, failed_skus))
                             current_index += 1
                             processed += 1
                             
@@ -456,16 +474,9 @@ class DiscountCrawler:
                         if tasks:
                             try:
                                 await asyncio.gather(*tasks)
-                                self.items_to_update.extend([item for item in self.results.values() if item])
                             except Exception as e:
                                 print(f"Batch failed: {str(e)}")
-                                failed_skus.extend(skus[current_index - len(tasks):current_index])
                             
-                            if len(self.items_to_update) >= self.save_interval:
-                                if not await self._update_products(warehouse_ids):
-                                    failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
-                            
-                            self.results = {}
                             await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
             except KeyboardInterrupt:
@@ -477,7 +488,10 @@ class DiscountCrawler:
                     f"Processed SKUs: {processed}\n"
                     f"Last processed SKU: {current_sku}\n"
                     f"Time taken: {elapsed_time:.2f} minutes\n"
-                    f"Failed SKUs so far: {len(failed_skus)}"
+                    f"Parse failed SKUs: {len(failed_skus['parse_failed'])}\n"
+                    f"Database failed SKUs: {len(failed_skus['db_failed'])}\n"
+                    f"\nParse failed SKUs list: {failed_skus['parse_failed']}\n"
+                    f"Database failed SKUs list: {failed_skus['db_failed']}"
                 )
                 print(interruption_message)
                 await self.send_email(
@@ -486,17 +500,15 @@ class DiscountCrawler:
                 )
                 raise
 
-            # Update any remaining items
-            if self.items_to_update:
-                if not await self._update_products(warehouse_ids):
-                    failed_skus.extend([int(item["url"].split("/")[-1]) for item in self.items_to_update])
-
             elapsed_time = (time.time() - start_time) / 60
             completion_message = (
                 f"Scrape completed!\n"
                 f"Total SKUs processed: {len(skus)}\n"
                 f"Time taken: {elapsed_time:.2f} minutes\n"
-                f"Failed SKUs: {len(failed_skus)}"
+                f"Parse failed SKUs: {len(failed_skus['parse_failed'])}\n"
+                f"Database failed SKUs: {len(failed_skus['db_failed'])}\n"
+                f"\nParse failed SKUs list: {failed_skus['parse_failed']}\n"
+                f"Database failed SKUs list: {failed_skus['db_failed']}"
             )
             print(completion_message)
             await self.send_email(
@@ -512,6 +524,34 @@ class DiscountCrawler:
                 error_message
             )
             raise
+
+    async def process_single_sku(self, session: aiohttp.ClientSession, sku: int, warehouse_ids: List[int], failed_skus: Dict):
+        """Process a single SKU: fetch, parse, and update to database"""
+        try:
+            # Fetch and parse the page
+            await self.fetch_page(session, sku)
+            
+            # Check if we got valid results
+            item_info = self.results.get(str(sku))
+            if not item_info:
+                failed_skus['parse_failed'].append(sku)
+                print(f"❌ Failed to parse SKU {sku}")
+                return
+
+            # Update single item to database
+            self.items_to_update = [item_info]
+            if not await self._update_products(warehouse_ids):
+                failed_skus['db_failed'].append(sku)
+                print(f"❌ Failed to update SKU {sku} to database")
+            else:
+                print(f"✅ Successfully processed SKU {sku}")
+            
+            # Clear results for this SKU
+            self.results.pop(str(sku), None)
+
+        except Exception as e:
+            failed_skus['parse_failed'].append(sku)
+            print(f"{self.RED}Error processing SKU {sku}: {str(e)}{self.RESET}")
 
     async def fetch_page(self, session: aiohttp.ClientSession, sku: int):
         """Fetch a single product page and parse item information"""
