@@ -557,6 +557,34 @@ class DiscountCrawler:
             if retry_count < max_retries:
                 await asyncio.sleep(random.uniform(self.min_delay, self.max_delay))
 
+    def _extract_numeric_value(self, value_str: str) -> float:
+        """Extract numeric value from a string by trimming non-digits from both ends.
+        
+        Args:
+            value_str: String containing a number (e.g. "$5.00", "25%", "$5 OFF")
+            
+        Returns:
+            float: Extracted numeric value, or 0.0 if no valid number found
+        """
+        try:
+            # Trim from start until we find a digit
+            start = 0
+            end = len(value_str)
+            
+            while start < end and not (value_str[start].isdigit() or value_str[start] == '.'):
+                start += 1
+            
+            # Trim from end until we find a digit
+            while end > start and not (value_str[end-1].isdigit()):
+                end -= 1
+            
+            # Extract the numeric part
+            numeric_str = value_str[start:end]
+            return float(numeric_str) if numeric_str else 0.0
+            
+        except (ValueError, IndexError):
+            return 0.0
+
     def _parse_item_page(self, html_content: str, sku: int) -> dict:
         """Parse item information from HTML content"""
         try:
@@ -602,9 +630,9 @@ class DiscountCrawler:
                             date_posted = divs[0].text.strip()
 
                         # Convert savings string to float
-                        savings_str = divs[1].text.strip().replace('OFF', '').replace('%', '').strip()
+                        savings_str = divs[1].text.strip().replace('OFF', '').strip()
                         try:
-                            savings = float(savings_str) if savings_str else 0.0
+                            savings = self._extract_numeric_value(savings_str)
                         except ValueError:
                             print(f"{self.RED}Invalid savings format for SKU {sku}: {savings_str}{self.RESET}")
                             savings = 0.0
