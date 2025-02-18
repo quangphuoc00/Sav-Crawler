@@ -172,9 +172,8 @@ async def get_uncategorized_items():
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT sku, name 
-                FROM items 
-                WHERE categories IS NULL
-                ORDER BY sku;
+                FROM product_item 
+                WHERE category IS NULL;
             """)
             
             items = cur.fetchall()
