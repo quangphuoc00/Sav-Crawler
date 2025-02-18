@@ -20,6 +20,7 @@ import io
 import requests
 import psycopg2
 from psycopg2.extras import execute_values
+from psycopg2 import pool
 
 class DiscountCrawler:
     def __init__(self, base_url, batch_size, min_delay, max_delay, save_interval, site_name):
@@ -70,8 +71,13 @@ class DiscountCrawler:
             'host': os.getenv('DB_HOST', 'db'),
             'port': os.getenv('DB_PORT', '5432')
         }
-        self.db_conn = None
-        self.db_cursor = None
+
+        # Initialize connection pool
+        self.db_pool = pool.SimpleConnectionPool(
+            minconn=1,
+            maxconn=5,  # Adjust based on your needs
+            **self.db_config
+        )
 
     def _should_rotate_session(self) -> bool:
         """Determine if we should rotate the session based on time or request count"""
@@ -145,7 +151,7 @@ class DiscountCrawler:
                             ExtraArgs={'ContentType': f'image/{file_extension}'}
                         )
                         
-                        # Generate S3 URL with proper region
+                        # Generate S3 URL
                         s3_url = f"https://{self.s3_bucket}.s3.{self.aws_region}.amazonaws.com/{s3_key}"
                         print(f"[IMAGE] Generated S3 URL: {s3_url}")
                         return s3_url
@@ -167,10 +173,11 @@ class DiscountCrawler:
 
         print(f"\n[DB] Preparing to insert {len(self.items_to_update)} items into database...")
 
+        conn = None
+        cursor = None
         try:
-            if not self.db_conn or self.db_conn.closed:
-                self.db_conn = psycopg2.connect(**self.db_config)
-                self.db_cursor = self.db_conn.cursor()
+            conn = self.db_pool.getconn()
+            cursor = conn.cursor()
 
             # Prepare product items and price history data
             # Deduplicate items by SKU, keeping the latest entry
@@ -224,7 +231,7 @@ class DiscountCrawler:
             # Insert product items with conflict resolution
             if product_items:
                 execute_values(
-                    self.db_cursor,
+                    cursor,
                     """
                     INSERT INTO product_item (sku, name, image_url, category)
                     VALUES %s
@@ -239,7 +246,7 @@ class DiscountCrawler:
             # Insert price histories with conflict resolution
             if price_histories:
                 execute_values(
-                    self.db_cursor,
+                    cursor,
                     """
                     INSERT INTO price_history 
                     (item_sku, date_posted, savings, expiry, final_price, warehouse_ids)
@@ -253,22 +260,22 @@ class DiscountCrawler:
                     price_histories
                 )
 
-            self.db_conn.commit()
+            conn.commit()
             print(f"[DB] ✅ Successfully inserted/updated {len(product_items)} products and {len(price_histories)} price histories")
             self.items_to_update = []
             return True
 
         except Exception as e:
-            if self.db_conn:
-                self.db_conn.rollback()
+            if conn:
+                conn.rollback()
             print(f"{self.RED}[DB] ❌ Error updating database: {str(e)}{self.RESET}")
             return False
 
         finally:
-            if self.db_cursor:
-                self.db_cursor.close()
-            if self.db_conn:
-                self.db_conn.close()
+            if cursor:
+                cursor.close()
+            if conn:
+                self.db_pool.putconn(conn)
 
     async def send_email(self, subject: str, body: str):
         try:
@@ -749,4 +756,9 @@ class DiscountCrawler:
                 "last_sku": last_sku,
                 "parse_failed": parse_failed,
                 "upload_failed": upload_failed
-            }, f) 
+            }, f)
+
+    def __del__(self):
+        """Cleanup connection pool when crawler is destroyed"""
+        if hasattr(self, 'db_pool'):
+            self.db_pool.closeall() 
