@@ -27,7 +27,7 @@ def load_visited_articles() -> deque:
                 return deque(urls, maxlen=MAX_STORED_URLS)
         return deque(maxlen=MAX_STORED_URLS)
     except Exception as e:
-        print(f"Error loading visited articles: {str(e)}")
+        print(f"error - Error loading visited articles: {str(e)}")
         return deque(maxlen=MAX_STORED_URLS)
 
 def save_visited_articles(visited_urls: deque):
@@ -36,7 +36,7 @@ def save_visited_articles(visited_urls: deque):
         with open(VISITED_ARTICLES_FILE, 'w') as f:
             f.write('\n'.join(visited_urls))
     except Exception as e:
-        print(f"Error saving visited articles: {str(e)}")
+        print(f"error - Error saving visited articles: {str(e)}")
 
 def create_skus_zip(skus: List[int]) -> str:
     """Create a zip file containing SKUs and return its path"""
@@ -94,7 +94,7 @@ SKUs Found: {len(skus)}
             
         print("Email report sent successfully")
     except Exception as e:
-        print(f"Failed to send email report: {str(e)}")
+        print(f"error - Failed to send email report: {str(e)}")
 
 async def get_daily_sales_skus() -> List[int]:
     """Scrape SKUs from daily sales page on cocowest.ca"""
@@ -199,7 +199,7 @@ async def get_daily_sales_skus() -> List[int]:
 
     except Exception as e:
         error_msg = str(e)
-        print(f"Error scraping daily sales: {error_msg}")
+        print(f"error - Error scraping daily sales: {error_msg}")
         # Send error report
         send_email_report([], 0, error=error_msg)
         return []
