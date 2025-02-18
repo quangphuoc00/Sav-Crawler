@@ -38,4 +38,4 @@ services:
 networks:
   backend:
     name: backend  # Use the same network name as defined in the DB docker-compose
-    # external: true  # Use the existing network
+    external: true  # Use the existing network
