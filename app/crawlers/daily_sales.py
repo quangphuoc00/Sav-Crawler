@@ -170,7 +170,10 @@ async def get_daily_sales_skus() -> List[int]:
                 print(all_skus)
                 
                 # Send email report
-                send_email_report(all_skus, articles_processed)
+                try:
+                    send_email_report(all_skus, articles_processed)
+                except Exception as e:
+                    print(f"Failed to send email report, but continuing: {str(e)}")
                 
                 # Trigger scrape API with found SKUs
                 if all_skus:
