@@ -10,6 +10,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 from contextlib import asynccontextmanager
+import psycopg2
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,6 +42,10 @@ class ScanRequest(BaseModel):
 class FoundSkusResponse(BaseModel):
     skus: List[int]
     count: int
+
+class ItemWithoutCategory(BaseModel):
+    sku: int
+    name: str
 
 @app.post("/api/scrape", response_model=ScrapeResponse)
 async def scrape_skus(request: ScrapeRequest):
@@ -150,6 +155,43 @@ async def get_daily_sales_endpoint(background_tasks: BackgroundTasks):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/items/uncategorized", response_model=List[ItemWithoutCategory])
+async def get_uncategorized_items():
+    """Get all items that have no category assigned"""
+    try:
+        # Get database connection from environment variables
+        conn = psycopg2.connect(
+            dbname=os.getenv('POSTGRES_DB'),
+            user=os.getenv('POSTGRES_USER'),
+            password=os.getenv('POSTGRES_PASSWORD'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
+        )
+        
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT sku, name 
+                FROM items 
+                WHERE categories IS NULL
+                ORDER BY sku;
+            """)
+            
+            items = cur.fetchall()
+            
+            # Convert to list of dictionaries
+            result = [
+                {"sku": item[0], "name": item[1]} 
+                for item in items
+            ]
+            
+            return result
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
     import uvicorn
