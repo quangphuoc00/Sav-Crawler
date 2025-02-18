@@ -146,12 +146,12 @@ async def run_daily_sales():
         print(f"Error in scheduled daily sales crawler: {str(e)}")
 
 @app.get("/api/daily-sales", response_model=FoundSkusResponse)
-async def get_daily_sales_endpoint(background_tasks: BackgroundTasks):
+async def get_daily_sales_endpoint():
     """Get SKUs from today's sales post"""
     try:
-        # Run in background to avoid blocking
-        background_tasks.add_task(run_daily_sales)
-        return FoundSkusResponse(skus=[], count=0)
+        # Wait for results instead of running in background
+        skus = await get_daily_sales_skus()
+        return FoundSkusResponse(skus=skus, count=len(skus))
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

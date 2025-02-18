@@ -175,13 +175,25 @@ async def get_daily_sales_skus() -> List[int]:
                 except Exception as e:
                     print(f"Failed to send email report, but continuing: {str(e)}")
                 
-                # Trigger scrape API with found SKUs
+                # Directly call discount crawler with found SKUs
                 if all_skus:
-                    api_url = os.getenv('API_URL')
-                    async with aiohttp.ClientSession() as session:
-                        await session.post(f"{api_url}/api/scrape", 
-                                         json={"site": "cocowest", "skus": all_skus})
-                        print(f"Triggered scrape API with {len(all_skus)} SKUs")
+                    from app.crawlers.discount_crawler import DiscountCrawler
+                    from app.config import CRAWLER_CONFIGS, CRAWLER_COMMON
+                    
+                    config = CRAWLER_CONFIGS["cocowest"]
+                    crawler = DiscountCrawler(
+                        batch_size=CRAWLER_COMMON["batch_size"],
+                        min_delay=CRAWLER_COMMON["min_delay"],
+                        max_delay=CRAWLER_COMMON["max_delay"],
+                        save_interval=CRAWLER_COMMON["save_interval"],
+                        base_url=config["base_url"],
+                        site_name=config["site_name"]
+                    )
+                    await crawler.scrape_found_skus(
+                        warehouse_ids=config["warehouse_ids"],
+                        skus=all_skus
+                    )
+                    print(f"Started discount crawler directly with {len(all_skus)} SKUs")
                 
                 return all_skus
 
