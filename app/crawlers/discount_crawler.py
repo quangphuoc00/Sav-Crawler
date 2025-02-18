@@ -231,8 +231,7 @@ class DiscountCrawler:
                     ON CONFLICT (sku) DO UPDATE SET
                         name = EXCLUDED.name,
                         image_url = COALESCE(EXCLUDED.image_url, product_item.image_url),
-                        category = COALESCE(EXCLUDED.category, product_item.category),
-                        updated_at = CURRENT_TIMESTAMP
+                        category = COALESCE(EXCLUDED.category, product_item.category)
                     """,
                     product_items
                 )
@@ -249,8 +248,7 @@ class DiscountCrawler:
                         savings = EXCLUDED.savings,
                         expiry = COALESCE(EXCLUDED.expiry, price_history.expiry),
                         final_price = EXCLUDED.final_price,
-                        warehouse_ids = EXCLUDED.warehouse_ids,
-                        updated_at = CURRENT_TIMESTAMP
+                        warehouse_ids = EXCLUDED.warehouse_ids
                     """,
                     price_histories
                 )
