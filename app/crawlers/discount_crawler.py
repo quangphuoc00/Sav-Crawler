@@ -72,10 +72,10 @@ class DiscountCrawler:
             'port': os.getenv('DB_PORT', '5432')
         }
 
-        # Initialize connection pool
+        # Initialize connection pool with larger max connections
         self.db_pool = pool.SimpleConnectionPool(
             minconn=1,
-            maxconn=5,  # Adjust based on your needs
+            maxconn=20,  # Increased from 10 to handle more concurrent connections
             **self.db_config
         )
 
@@ -174,9 +174,21 @@ class DiscountCrawler:
         print(f"\n[DB] Preparing to insert {len(self.items_to_update)} items into database...")
 
         conn = None
-        cursor = None
         try:
-            conn = self.db_pool.getconn()
+            # Add timeout and retry logic for getting connection
+            max_retries = 10
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    conn = self.db_pool.getconn()
+                    break
+                except pool.PoolError:
+                    retry_count += 1
+                    if retry_count == max_retries:
+                        raise
+                    print(f"[DB] Connection pool exhausted, retrying... ({retry_count}/{max_retries})")
+                    await asyncio.sleep(1)  # Wait before retrying
+
             cursor = conn.cursor()
 
             # Prepare product items and price history data
@@ -272,10 +284,12 @@ class DiscountCrawler:
             return False
 
         finally:
-            if cursor:
-                cursor.close()
             if conn:
-                self.db_pool.putconn(conn)
+                try:
+                    conn.cursor().close()  # Ensure cursor is closed
+                    self.db_pool.putconn(conn)  # Return connection to pool
+                except Exception as e:
+                    print(f"{self.RED}[DB] Error returning connection to pool: {str(e)}{self.RESET}")
 
     async def send_email(self, subject: str, body: str):
         try:
