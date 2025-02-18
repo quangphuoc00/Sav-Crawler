@@ -127,7 +127,6 @@ class DiscountCrawler:
                             return ""
                         
                         image = Image.open(io.BytesIO(content))
-                        print(f"[IMAGE] Successfully opened image: {image.format} {image.size}")
                         
                         # Process image
                         width, height = image.size
@@ -692,7 +691,7 @@ class DiscountCrawler:
             content_div = soup.find('div', class_='coco-entry-summary')
             if content_div:
                 price_rows = content_div.find_all('div', style=lambda x: x and 'flex-flow: row wrap' in x)
-                current_price = None
+                current_price = -1  # Initialize with sentinel value
                 price_rows = price_rows[1:]  # Skip header row
                 
                 for row in price_rows[::-1]:  # Process rows in reverse order
@@ -713,24 +712,25 @@ class DiscountCrawler:
                             print(f"{self.RED}error - Invalid savings format for SKU {sku}: {savings_str}{self.RESET}")
                             savings = 0.0
 
-                        # Convert price string to float or use current price
+                        # Convert price string to float or keep sentinel value
                         price_str = divs[3].text.strip().replace('$', '').replace(',', '')
                         if price_str:  # If there's a new price
                             try:
                                 current_price = float(price_str)
                             except ValueError:
                                 print(f"{self.RED}error - Invalid price format for SKU {sku}: {price_str}{self.RESET}")
-                                continue
+                                current_price = -1
                         
-                        # Only add entry if we have a valid price
-                        if current_price is not None:
-                            price_entry = {
-                                "date_posted": date_posted,
-                                "savings": savings,
-                                "expiry": divs[2].text.strip(),
-                                "final_price": current_price
-                            }
-                            price_history.append(price_entry)
+                        # Always add entry, but log error if price is invalid
+                        price_entry = {
+                            "date_posted": date_posted,
+                            "savings": savings,
+                            "expiry": divs[2].text.strip(),
+                            "final_price": current_price
+                        }
+                        if current_price == -1:
+                            print(f"{self.RED}error - Invalid price for SKU {sku} on date {date_posted}{self.RESET}")
+                        price_history.append(price_entry)
 
                 # Reverse back to chronological order
                 price_history = price_history[::-1]
