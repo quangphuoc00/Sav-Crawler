@@ -5,6 +5,7 @@ WORKDIR /app
 # Install dependencies
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+RUN pip install apscheduler
 
 # Create app directory and copy files
 RUN mkdir -p /app/app

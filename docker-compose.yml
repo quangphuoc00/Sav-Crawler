@@ -10,6 +10,7 @@ services:
       - PYTHONUNBUFFERED=1  # Enable real-time logging
       - API_URL=http://66.94.112.14:8080
       - EMAIL_SENDER=${EMAIL_SENDER}
+      - EMAIL_RECEIVER=${EMAIL_RECEIVER}
       - EMAIL_PASSWORD=${EMAIL_PASSWORD}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -17,9 +18,9 @@ services:
       - S3_BUCKET_NAME=${S3_BUCKET_NAME}
       - S3_PREFIX=${S3_PREFIX}
       # Add database environment variables
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=savai_db
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
       - DB_HOST=db
       - DB_PORT=5432
     networks:
@@ -37,4 +38,4 @@ services:
 networks:
   backend:
     name: backend  # Use the same network name as defined in the DB docker-compose
-    external: true  # Use the existing network
+    # external: true  # Use the existing network

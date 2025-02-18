@@ -45,8 +45,8 @@ class DiscountCrawler:
         # Add thread-safe print lock
         self.print_lock = threading.Lock()
 
-        self.receiver_email = "tekinno.sw@gmail.com"
-        self.sender_email = os.getenv('EMAIL_SENDER', 'ddqphuoc@gmail.com')
+        self.receiver_email = os.getenv('EMAIL_RECEIVER')
+        self.sender_email = os.getenv('EMAIL_SENDER')
         self.email_password = os.getenv('EMAIL_PASSWORD')
         self.existing_skus = 0
         self.non_existing_skus = 0

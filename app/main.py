@@ -1,12 +1,29 @@
 import asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import List
 from app.crawlers.discount_crawler import DiscountCrawler
 from app.config import CRAWLER_CONFIGS, CRAWLER_COMMON
 import os
+from app.crawlers.daily_sales import get_daily_sales_skus
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    scheduler.add_job(run_daily_sales, 
+                     trigger=CronTrigger(hour='9,17', 
+                                       timezone='America/Vancouver'))
+    scheduler.start()
+    yield
+    # Shutdown
+    scheduler.shutdown()
+
+app = FastAPI(lifespan=lifespan)
+scheduler = AsyncIOScheduler()
 
 class ScrapeRequest(BaseModel):
     site: str
@@ -110,6 +127,26 @@ async def get_found_skus():
         # Convert set to sorted list
         sorted_skus = sorted(all_skus)
         return FoundSkusResponse(skus=sorted_skus, count=len(sorted_skus))
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def run_daily_sales():
+    """Background task to run daily sales crawler"""
+    try:
+        print(f"Starting scheduled daily sales crawler at {datetime.now()}")
+        skus = await get_daily_sales_skus()
+        print(f"Scheduled daily sales crawler completed. Found {len(skus)} SKUs")
+    except Exception as e:
+        print(f"Error in scheduled daily sales crawler: {str(e)}")
+
+@app.get("/api/daily-sales", response_model=FoundSkusResponse)
+async def get_daily_sales_endpoint(background_tasks: BackgroundTasks):
+    """Get SKUs from today's sales post"""
+    try:
+        # Run in background to avoid blocking
+        background_tasks.add_task(run_daily_sales)
+        return FoundSkusResponse(skus=[], count=0)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
